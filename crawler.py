@@ -9,7 +9,7 @@
 import os
 import re
 import time
-
+import pandas as pd
 import requests
 import logging
 from lxml import html
@@ -19,11 +19,12 @@ logging.StreamHandler()
 
 
 class AsiaSocietyCrawler:
-    def __init__(self, index_url, url_txt, out_folder,page_length):
+    def __init__(self, index_url, url_txt, out_folder,xlsx_path):
         self.url = index_url
         self.url_txt = url_txt
         self.out_folder = out_folder
-        self.page_length = page_length
+        self.xlsx_path = xlsx_path
+        # self.page_length = page_length
 
     @staticmethod
     def open_proxy_url(url: str):
@@ -40,15 +41,41 @@ class AsiaSocietyCrawler:
         return (r.text)
 
     # 爬取导航主页面，获取翻页方式,得到所有目录页的url
-    def parse_index(self, page_length) -> list:
+    def parse_index(self) -> list:
         """
         获取翻页的列表，这个主要是通过前端html观察测试得到的
         :return: page组成的列表
         """
         page_url_list = []
+        page_length = self.get_max_page()
         for i in range(page_length):
             page_url_list.append(self.url + "?page=" + str(i))
         return page_url_list
+
+    # 获取最大页数
+    def get_max_page(self) -> int:
+        """
+        获取最大页数
+        :return:
+        """
+        max_num = 0
+        page_length = 0
+        logging.info("开始获取最大页数")
+        for num in (50, 60, 70, 80, 100, 150, 200):
+            page_url = self.url + "?page=" + str(num)
+            html_text = self.open_proxy_url(page_url)
+            if "Load More" not in html_text:
+                max_num = num
+                break
+        for num in range(max_num - 10, max_num):
+            page_url = self.url + "?page=" + str(num)
+            html_text = self.open_proxy_url(page_url)
+            if "Load More" not in html_text:
+                page_length = num
+                break
+            time.sleep(1)
+        logging.info("最大页数为：{}".format(page_length))
+        return page_length
 
     # 遍历每一页，提取url，保存基本字段url地址
     def extract_url(self, page_list: list) -> None:
@@ -62,11 +89,13 @@ class AsiaSocietyCrawler:
             page_html = self.open_proxy_url(page_url)
             tree = html.fromstring(page_html)
             urls = tree.xpath("//h4[@class='card-title']/a/@href")
-            abstracts = tree.xpath("//div[@class='teaser-text']/div")
+            titles = tree.xpath("//h4[@class='card-title']/a/span")
+            # abstracts = tree.xpath("//div[@class='teaser-text']/div")
             for index in range(len(urls)):
                 # url, abs = "https://asiasociety.org/" + urls[index], abstracts[index].text
-                url = "https://asiasociety.org/" + urls[index]
-                url_list.append(url)
+                title, url = titles[index].text, "https://asiasociety.org/" + urls[index]
+                # url = "https://asiasociety.org/" + urls[index]
+                url_list.append(title+"\t"+url)
             time.sleep(1)
         self.write2txt(url_list, self.url_txt)
 
@@ -78,14 +107,13 @@ class AsiaSocietyCrawler:
         # 2.对未爬取的网页进行抓取及保存
         try:
             for url in url_list:
-                name = "".join(re.findall(r'policy-institute/(.*)', url)).replace("/","")
+                name = "".join(re.findall(r'policy-institute/(.*)', url)).replace("/", "")
                 path = self.out_folder + "/" + "".join(name) + '.html'
                 html_text = self.open_proxy_url(url)
                 self.save_html(path, html_text)
                 time.sleep(1)
         except Exception as e:
             logging.info(e)
-
 
     def remove_existed(self):
         """
@@ -96,7 +124,7 @@ class AsiaSocietyCrawler:
         with open(self.url_txt, 'r', encoding='utf') as f:
             for line in f.readlines():
                 name = "".join(re.findall(r'policy-institute/(.*)', line))
-                url_dict[name] = line.strip()
+                url_dict[name] = line.split("\t")[1].strip()
         for i in os.listdir(self.out_folder):
             name = i.split('.')[0]
             if name in url_dict:
@@ -115,25 +143,60 @@ class AsiaSocietyCrawler:
     def save_html(path, text):
         """
         保存网页至本地
-        :param name:
+        :param text:
+        :param path:
         :return:
         """
         with open(path, 'w', encoding='utf8') as fw:
             fw.write(text)  # 忽略非法字符
         print(path + "已保存！")
 
+    def parse_html(self):
+        """
+        解析html，提取信息
+        :return:
+        """
+        logging.info("开始解析html")
+        result_list = []
+
+        for file in os.listdir(self.out_folder):
+            try:
+                file_path = self.out_folder + "/" + file
+                with open(file_path, 'r', encoding='utf8') as f:
+                    content_str =""
+                    html_text = f.read()
+                    tree = html.fromstring(html_text)
+                    title = tree.xpath("//h1/span")[0].text
+                    date = tree.xpath("//div[@class='author-date']")[0].text
+                    content = tree.xpath("//p")
+                    for item in content:
+                        if item.text is not None:
+                            content_str += item.text
+                    result_list.append([title, date, content_str])
+            except Exception as e:
+                logging.info(e)
+                logging.info(file + "解析失败")
+                continue
+        df = pd.DataFrame(result_list, columns=['title', 'date', 'content'])
+        df.to_excel(self.xlsx_path)
+        logging.info("html解析成功")
+
     def main(self):
-        if not os.path.exists(self.url_txt):
-            logging.info("第一次爬取，获取所有的url，保存至txt")
-            page_url_list = self.parse_index(self.page_length)
-            self.extract_url(page_url_list)
-            time.sleep(1)
-        else:
-            logging.info("已存在url文件，直接开始获取详情页")
+        # if not os.path.exists(self.url_txt):
+        #     logging.info("第一次爬取，获取所有的url，保存至txt")
+        #     page_url_list = self.parse_index()
+        #     self.extract_url(page_url_list)
+        #     time.sleep(1)
+        # else:
+        #     logging.info("已存在url文件，直接开始获取详情页")
+        page_url_list = self.parse_index()
+        self.extract_url(page_url_list)
+        time.sleep(1)
         self.get_html_detail()
+        self.parse_html()
 
 
 if __name__ == '__main__':
     test_url = "https://asiasociety.org/policy-institute/publications"
-    handler = AsiaSocietyCrawler(test_url, "url.txt", "html/",53)
+    handler = AsiaSocietyCrawler(test_url, "url.txt", "html/","asiasociety.xlsx")
     handler.main()
