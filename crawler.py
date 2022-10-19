@@ -19,10 +19,11 @@ logging.StreamHandler()
 
 
 class AsiaSocietyCrawler:
-    def __init__(self, index_url, url_txt, out_folder):
+    def __init__(self, index_url, url_txt, out_folder,page_length):
         self.url = index_url
         self.url_txt = url_txt
         self.out_folder = out_folder
+        self.page_length = page_length
 
     @staticmethod
     def open_proxy_url(url: str):
@@ -66,6 +67,7 @@ class AsiaSocietyCrawler:
                 # url, abs = "https://asiasociety.org/" + urls[index], abstracts[index].text
                 url = "https://asiasociety.org/" + urls[index]
                 url_list.append(url)
+            time.sleep(1)
         self.write2txt(url_list, self.url_txt)
 
     # 保存具体html，提取信息
@@ -123,7 +125,7 @@ class AsiaSocietyCrawler:
     def main(self):
         if not os.path.exists(self.url_txt):
             logging.info("第一次爬取，获取所有的url，保存至txt")
-            page_url_list = self.parse_index(1)
+            page_url_list = self.parse_index(self.page_length)
             self.extract_url(page_url_list)
             time.sleep(1)
         else:
@@ -133,5 +135,5 @@ class AsiaSocietyCrawler:
 
 if __name__ == '__main__':
     test_url = "https://asiasociety.org/policy-institute/publications"
-    handler = AsiaSocietyCrawler(test_url, "url.txt", "html/")
+    handler = AsiaSocietyCrawler(test_url, "url.txt", "html/",53)
     handler.main()
