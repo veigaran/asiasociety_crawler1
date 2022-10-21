@@ -70,8 +70,8 @@ class AsiaSocietyCrawler:
         :return: page组成的列表
         """
         page_url_list = []
-        # page_length = self.get_max_page()
-        for i in range(2):
+        page_length = self.get_max_page()
+        for i in range(page_length):
             page_url_list.append(self.url + "?page=" + str(i))
         return page_url_list
 
@@ -107,9 +107,7 @@ class AsiaSocietyCrawler:
         :param page_list: 目录页列表
         :return: 保存待抓取的网页url、摘要到本地文件
         """
-        url_list = []
         url_json = {}
-        num = 0
         for page_url in page_list:
             page_html = self.open_proxy_url(page_url)
             tree = html.fromstring(page_html)
@@ -117,20 +115,19 @@ class AsiaSocietyCrawler:
             urls = tree.xpath("//h4[@class='card-title']/a/@href")
             # 用于匹配每一个page下的详情页标题
             titles = tree.xpath("//h4[@class='card-title']/a/span")
+
+            summarys = tree.xpath("//div[@class='teaser-text']/div")
             for index in range(len(urls)):
                 # 此处匹配得到的url格式如 “/policy-institute/2022-aseans-emerging-female-trade-leaders-program”
                 # 可发现缺少url前缀，所以需要把它补充完整，才能正确访问目标网页
                 title = re.sub(r"\W", "-", titles[index].text)
                 url_dict = {"url": "https://asiasociety.org" + urls[index],
                             "title": title,
-                            "resource": "https://asiasociety.org"}
+                            "resource": "https://asiasociety.org",
+                            "summary": summarys[index].text}
                 url_json[title] = url_dict
-                num += 1
-                # title, url = titles[index].text, "https://asiasociety.org" + urls[index]
-                # url_list.append(title + "\t" + url)
             time.sleep(1)
         json.dump(url_json, open(self.json_path, "w", encoding="utf8"), indent=4, separators=(',', ': '))
-        # self.write2txt(url_list, self.url_txt)
 
     # 保存具体html，提取信息
     def get_html_detail(self):
@@ -141,13 +138,13 @@ class AsiaSocietyCrawler:
         try:
             for name, url_info in url_dict.items():
                 temp = {}
-                # name = "".join(re.findall(r'policy-institute/(.*)', url)).replace("/", "")
                 path = self.out_folder + "/" + "".join(name) + '.json'
                 html_text = self.open_proxy_url(url_info["url"])
                 temp["title"] = name.replace("-", " ")
                 temp["url"] = url_info["url"]
                 temp["resource"] = url_info["resource"]
                 temp["html"] = html_text
+                temp["summary"] = url_info["summary"]
                 json.dump(temp, open(path, "w", encoding="utf8"), indent=4, separators=(',', ': '))
                 logging.info("已保存" + name)
                 # self.save_html(path, html_text)
@@ -160,15 +157,8 @@ class AsiaSocietyCrawler:
         读取url.txt获取所有url，同时和保存html目录下的文件进行对比，若存在已爬取的网页，则跳过，从而避免重复抓取
         :return:
         """
-        # url_dict = {}
         with open(self.json_path, "r", encoding="utf8") as f:
             url_dict = json.load(f)
-        # url_json_list = list(url_json.values())
-
-        # with open(self.url_txt, 'r', encoding='utf') as f:
-        #     for line in f.readlines():
-        #         name = "".join(re.findall(r'policy-institute/(.*)', line))
-        #         url_dict[name] = line.split("\t")[1].strip()
         for i in os.listdir(self.out_folder):
             name = i.split('.')[0]
             if name in url_dict:
@@ -197,17 +187,7 @@ class AsiaSocietyCrawler:
                 for item in content:
                     if item.text is not None:
                         content_str += item.text
-                result_list.append([title, html_dict["url"], content_str, " ", " ", date, html_dict["resource"], " "])
-                # with open(file_path, 'r', encoding='utf8') as f:
-                #     content_str = ""
-                #     html_text = f.read()
-                #     tree = html.fromstring(html_text)
-                #     title = tree.xpath("//h1/span")[0].text
-                #     date = tree.xpath("//div[@class='author-date']")[0].text
-                #     content = tree.xpath("//p")
-                #     for item in content:
-                #         if item.text is not None:
-                #             content_str += item.text
+                result_list.append([title, html_dict["url"], content_str, html_dict["summary"], " ", date, html_dict["resource"], " "])
             except Exception as e:
                 logging.info(e)
                 logging.info(file + "解析失败")
@@ -218,13 +198,6 @@ class AsiaSocietyCrawler:
         logging.info("html解析成功")
 
     def main(self):
-        # if not os.path.exists(self.url_txt):
-        #     logging.info("第一次爬取，获取所有的url，保存至txt")
-        #     page_url_list = self.parse_index()
-        #     self.extract_url(page_url_list)
-        #     time.sleep(1)
-        # else:
-        #     logging.info("已存在url文件，直接开始获取详情页")
         # 1.获取所有page页列表
         page_url_list = self.parse_index()
         # 2.遍历每一页page，获取所有的详情页url和标题，保存至txt
@@ -240,4 +213,3 @@ if __name__ == '__main__':
     test_url = "https://asiasociety.org/policy-institute/publications"
     handler = AsiaSocietyCrawler(test_url, "url.txt", "html", "asiasociety.xlsx", "asiasociety_url.json")
     handler.main()
-    # handler.get_max_page()
