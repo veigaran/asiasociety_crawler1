@@ -116,7 +116,7 @@ class AsiaSocietyCrawler:
             # 用于匹配每一个page下的详情页标题
             titles = tree.xpath("//h4[@class='card-title']/a/span")
 
-            summarys = tree.xpath("//div[@class='teaser-text']/div")
+            summaries = tree.xpath("//div[@class='teaser-text']/div")
             for index in range(len(urls)):
                 # 此处匹配得到的url格式如 “/policy-institute/2022-aseans-emerging-female-trade-leaders-program”
                 # 可发现缺少url前缀，所以需要把它补充完整，才能正确访问目标网页
@@ -124,7 +124,7 @@ class AsiaSocietyCrawler:
                 url_dict = {"url": "https://asiasociety.org" + urls[index],
                             "title": title,
                             "resource": "https://asiasociety.org",
-                            "summary": summarys[index].text}
+                            "summary": summaries[index].text}
                 url_json[title] = url_dict
             time.sleep(1)
         json.dump(url_json, open(self.json_path, "w", encoding="utf8"), indent=4, separators=(',', ': '))
