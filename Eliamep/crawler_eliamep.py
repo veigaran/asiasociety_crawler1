@@ -9,6 +9,7 @@
 import os
 import re
 import time
+import json
 import pandas as pd
 import requests
 import logging
@@ -19,27 +20,43 @@ logging.StreamHandler()
 
 
 class EliamepCrawler:
-    def __init__(self, index_url, url_txt, out_folder, xlsx_path):
+    def __init__(self, index_url, url_txt, out_folder, xlsx_path, json_path, cached_path):
         self.url = index_url
         self.url_txt = url_txt
+        self.json_path = json_path
         self.out_folder = out_folder
         self.xlsx_path = xlsx_path
+        self.cache_path = cached_path
         if not os.path.exists(self.out_folder):
             os.mkdir(self.out_folder)
+        if not os.path.exists(self.cache_path):
+            os.mkdir(self.cache_path)
 
-    @staticmethod
-    def open_proxy_url(url: str):
+    def open_proxy_url(self, url: str):
         """
         request方法,获取目标网页信息
         :param url: 目标url
         :return:
         """
-        user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36'
-        headers = {'User-Agent': user_agent}
-        r = requests.get(url, headers=headers, timeout=20)
-        r.raise_for_status()
-        r.encoding = r.apparent_encoding
-        return (r.text)
+        # title = re.sub(r"\W", "-", url.split("/")[-1])
+        title  = url.split("/")[-2]
+        save_path = os.path.join(self.cache_path, title)
+        if os.path.exists(save_path):
+            with open(save_path, "r", encoding="utf8") as f:
+                return f.read()
+        else:
+            try:
+                user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36'
+                headers = {'User-Agent': user_agent}
+                r = requests.get(url, headers=headers, timeout=20)
+                r.raise_for_status()
+                r.encoding = r.apparent_encoding
+                content = r.text
+                self.save_html(save_path,content)
+                return (content)
+            except:
+                time.sleep(20)
+                logging.info("请求失败，正在重试")
 
     @staticmethod
     def write2txt(url_list: list, path: str):
@@ -106,6 +123,7 @@ class EliamepCrawler:
         :return: 保存待抓取的网页url、摘要到本地文件
         """
         url_list = []
+        url_json = {}
         for page_url in page_list:
             page_html = self.open_proxy_url(page_url)
             tree = html.fromstring(page_html)
@@ -115,10 +133,16 @@ class EliamepCrawler:
             titles = tree.xpath("//a[@class='title db']/text()")
             for index in range(len(urls)):
                 # 此处匹配得到的url为完整的url，无需补充
-                title, url = titles[index], urls[index]
+                title = re.sub(r"\W", "-", titles[index])
+                url = urls[index]
                 url_list.append(title + "\t" + url)
+                url_dict = {"title": title,
+                            "url": url,
+                            "resource": "https://www.eliamep.gr/en/publications/",
+                            }
+                url_json[title] = url_dict
             time.sleep(1)
-        self.write2txt(url_list, self.url_txt)
+        json.dump(url_json, open(self.json_path, "w", encoding="utf8"), indent=4, separators=(',', ': '))
 
     # 保存具体html，提取信息
     def get_html_detail(self):
@@ -127,12 +151,16 @@ class EliamepCrawler:
         logging.info("还剩" + str(len(url_dict)) + "未爬取")
         # 2.对未爬取的网页进行抓取及保存
         try:
-            for name, url in url_dict.items():
-                # name = url.split("\t")[0].replace(" ", "-")
-                path = self.out_folder + "/" + "".join(name) + '.html'
-                html_text = self.open_proxy_url(url)
-                self.save_html(path, html_text)
-                time.sleep(1)
+            for name, url_info in url_dict.items():
+                temp = {}
+                path = self.out_folder + "/" + "".join(name) + '.json'
+                html_text = self.open_proxy_url(url_info["url"])
+                temp["title"] = name.replace("-", " ")
+                temp["url"] = url_info["url"]
+                temp["resource"] = url_info["resource"]
+                temp["html"] = html_text
+                json.dump(temp, open(path, "w", encoding="utf8"), indent=4, separators=(',', ': '))
+                logging.info("已保存" + name)
         except Exception as e:
             logging.info(e)
 
@@ -141,12 +169,9 @@ class EliamepCrawler:
         读取url.txt获取所有url，同时和保存html目录下的文件进行对比，若存在已爬取的网页，则跳过，从而避免重复抓取
         :return:
         """
-        url_dict = {}
-        with open(self.url_txt, 'r', encoding='utf') as f:
-            for line in f.readlines():
-                # name = "".join(re.findall(r'policy-institute/(.*)', line))
-                name = line.split("\t")[0].replace(" ", "-").replace("/","")
-                url_dict[name] = line.split("\t")[1].strip()
+        # url_dict = {}
+        with open(self.json_path, "r", encoding="utf8") as f:
+            url_dict = json.load(f)
         for i in os.listdir(self.out_folder):
             name = i.split('.')[0]
             if name in url_dict:
@@ -164,46 +189,45 @@ class EliamepCrawler:
         for file in os.listdir(self.out_folder):
             try:
                 file_path = self.out_folder + "/" + file
-                with open(file_path, 'r', encoding='utf8') as f:
-                    content_str = ""
-                    html_text = f.read()
-                    tree = html.fromstring(html_text)
-                    title = tree.xpath("//h1/span")[0].text
-                    date = tree.xpath("//div[@class='author-date']")[0].text
-                    content = tree.xpath("//p")
-                    for item in content:
-                        if item.text is not None:
-                            content_str += item.text
-                    result_list.append([title, date, content_str])
+                with open(file_path, "r", encoding="utf8") as f:
+                    html_dict = json.load(f)
+                content_str = ""
+                # html_text = f.read()
+                tree = html.fromstring(html_dict["html"])
+                title = tree.xpath("//h1[@class='postTitle']")[0].text
+                date = tree.xpath("//div[@class='l2']")[0].text
+                content = tree.xpath("//div[@class='articleBody']/p")
+                if tree.xpath("//div[@class='l2 experts']/a"):
+                    author = tree.xpath("//div[@class='l2 experts']/a")[0].text
+                else:
+                    author = ""
+                for item in content:
+                    if item.text is not None:
+                        content_str += item.text
+                result_list.append(
+                    [title, html_dict["url"], content_str, " ", author, date, html_dict["resource"], " "])
             except Exception as e:
                 logging.info(e)
                 logging.info(file + "解析失败")
                 continue
-        df = pd.DataFrame(result_list, columns=['title', 'date', 'content'])
-        df.to_excel(self.xlsx_path)
+        df = pd.DataFrame(result_list,
+                          columns=['title', 'url', 'content', 'summary', 'author', 'time', 'resource', 'pdf'])
+        df.to_csv(self.xlsx_path)
         logging.info("html解析成功")
 
     def main(self):
-        # if not os.path.exists(self.url_txt):
-        #     logging.info("第一次爬取，获取所有的url，保存至txt")
-        #     page_url_list = self.parse_index()
-        #     self.extract_url(page_url_list)
-        #     time.sleep(1)
-        # else:
-        #     logging.info("已存在url文件，直接开始获取详情页")
         # 1.获取所有page页列表
         # page_url_list = self.parse_index()
-        # 2.遍历每一页page，获取所有的详情页url和标题，保存至txt
+        # # 2.遍历每一页page，获取所有的详情页url和标题，保存至txt
         # self.extract_url(page_url_list)
         # time.sleep(1)
-        # 3.根据url.txt内容，提取所有未爬取的url，保存至本地
+        # # 3.根据url.txt内容，提取所有未爬取的url，保存至本地
         self.get_html_detail()
         # 4.解析下载的html，保存至xlsx
-        # self.parse_html()
+        self.parse_html()
 
 
 if __name__ == '__main__':
     test_url = "https://www.eliamep.gr/en/publications/"
-    handler = EliamepCrawler(test_url, "url_eliamep.txt", "Eliamep/", "Eliamep.xlsx")
+    handler = EliamepCrawler(test_url, "url_eliamep.txt", "Eliamep", "Eliamep.csv", "Eliamep.json", "cache")
     handler.main()
-    # handler.get_max_page()
