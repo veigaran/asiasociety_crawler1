@@ -20,9 +20,8 @@ logging.StreamHandler()
 
 
 class CaseResearch:
-    def __init__(self, index_url, url_txt, out_folder, xlsx_path, json_path, cached_path):
+    def __init__(self, index_url,  out_folder, xlsx_path, json_path, cached_path):
         self.url = index_url
-        self.url_txt = url_txt
         self.json_path = json_path
         self.out_folder = out_folder
         self.xlsx_path = xlsx_path
@@ -87,31 +86,27 @@ class CaseResearch:
         page_url_list = []
         page_length = self.get_max_page()
         for i in range(page_length):
-            page_url_list.append(self.url + "/page/" + str(i))
+            page_url = f'https://www.case-research.eu/ajax/more_post.php?csrf_test_name=4e323004ae6b0c06a242de47f21a8317&offset={i}%7C120&post_type=publication&lang_id=2&tag='
+            page_url_list.append(page_url)
         return page_url_list
 
     # 获取最大页数
     def get_max_page(self) -> int:
         """
-        获取最大页数
+        获取最大页数 最大值  offset=180%7C6  共1080条数据
         :return:
         """
-        max_num = 75
+        max_num = 9
         page_length = 0
         logging.info("开始获取最大页数")
         while True:
-            page_url = self.url + "/page/" + str(max_num)
+            page_url = f'https://www.case-research.eu/ajax/more_post.php?csrf_test_name=4e323004ae6b0c06a242de47f21a8317&offset={max_num}%7C120&post_type=publication&lang_id=2&tag='
             html_text = self.open_proxy_url(page_url)
-            if "Sorry, nothing to display" in html_text:
+            url_info = json.loads(html_text)
+            if url_info['content'] == '':
                 break
-            max_num += 5
-        for num in range(max_num - 10, max_num):
-            page_url = self.url + "/page/" + str(num)
-            html_text = self.open_proxy_url(page_url)
-            if "Sorry, nothing to display" in html_text:
-                page_length = num - 1
-                break
-            time.sleep(1)
+            max_num += 1
+        page_length = max_num-1
         logging.info("最大页数为：{}".format(page_length))
         return page_length
 
@@ -126,19 +121,19 @@ class CaseResearch:
         url_json = {}
         for page_url in page_list:
             page_html = self.open_proxy_url(page_url)
-            tree = html.fromstring(page_html)
+            tree = html.fromstring(json.loads(page_html)['content'])
             # 用于匹配每一个page下的详情页url
-            urls = tree.xpath("//a[@class='title db']/@href")
+            urls = tree.xpath("//div[@class='descripton']/a[@class='aclick']/@href")
             # 用于匹配每一个page下的详情页标题
-            titles = tree.xpath("//a[@class='title db']/text()")
+            titles = tree.xpath("//div[@class='descripton']/a[@class='aclick']/text()")
             for index in range(len(urls)):
                 # 此处匹配得到的url为完整的url，无需补充
                 title = re.sub(r"\W", "-", titles[index])
                 url = urls[index]
                 url_list.append(title + "\t" + url)
                 url_dict = {"title": title,
-                            "url": url,
-                            "resource": "https://www.eliamep.gr/en/publications/",
+                            "url":"https://www.case-research.eu"+ url,
+                            "resource": "https://www.case-research.eu/en/publications",
                             }
                 url_json[title] = url_dict
             time.sleep(1)
@@ -184,6 +179,7 @@ class CaseResearch:
         解析html，提取信息
         :return:
         """
+        author = ""
         logging.info("开始解析html")
         result_list = []
         for file in os.listdir(self.out_folder):
@@ -194,18 +190,21 @@ class CaseResearch:
                 content_str = ""
                 # html_text = f.read()
                 tree = html.fromstring(html_dict["html"])
-                title = tree.xpath("//h1[@class='postTitle']")[0].text
-                date = tree.xpath("//div[@class='l2']")[0].text
-                content = tree.xpath("//div[@class='articleBody']/p")
-                if tree.xpath("//div[@class='l2 experts']/a"):
-                    author = tree.xpath("//div[@class='l2 experts']/a")[0].text
-                else:
-                    author = ""
+                title = tree.xpath("//h1[@class='thtitle-post']")[0].text
+                date = tree.xpath("//div[@class='pull-left date']/text()")
+                content = tree.xpath("//div[@class='list_news_content']/p")
+                # if tree.xpath("//div[@class='boxwhite'][2]/div"):
+                #     for item in tree.xpath("//div[@class='boxwhite'][2]/div"):
+                #         temp = item.xpath("string(.)")
+                #         author += item.text_content()
+                #     # author = tree.xpath("//div[@class='boxwhite'][2]/div")
+                # else:
+                #     author = ""
                 for item in content:
                     if item.text is not None:
                         content_str += item.text
                 result_list.append(
-                    [title, html_dict["url"], content_str, " ", author, date, html_dict["resource"], " "])
+                    [title, html_dict["url"], content_str, " ", "", date, html_dict["resource"], " "])
             except Exception as e:
                 logging.info(e)
                 logging.info(file + "解析失败")
@@ -216,18 +215,19 @@ class CaseResearch:
         logging.info("html解析成功")
 
     def main(self):
+        # self.get_max_page()
         # 1.获取所有page页列表
         # page_url_list = self.parse_index()
         # # 2.遍历每一页page，获取所有的详情页url和标题，保存至txt
         # self.extract_url(page_url_list)
         # time.sleep(1)
-        # # 3.根据url.txt内容，提取所有未爬取的url，保存至本地
-        self.get_html_detail()
+        # 3.根据url.txt内容，提取所有未爬取的url，保存至本地
+        # self.get_html_detail()
         # 4.解析下载的html，保存至xlsx
         self.parse_html()
 
 
 if __name__ == '__main__':
     test_url = "https://www.eliamep.gr/en/publications/"
-    handler = CaseResearch(test_url, "url_eliamep.txt", "Eliamep", "Eliamep.csv", "Eliamep.json","cache")
+    handler = CaseResearch(test_url,  "CaseResearch", "CaseResearch.csv", "CaseResearch.json","cache")
     handler.main()

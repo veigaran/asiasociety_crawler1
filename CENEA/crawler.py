@@ -228,6 +228,6 @@ class CENEA:
 
 
 if __name__ == '__main__':
-    test_url = "https://www.eliamep.gr/en/publications/"
-    handler = CENEA(test_url, "url_eliamep.txt", "Eliamep", "Eliamep.csv", "Eliamep.json","cache")
+    test_url = "https://cenea.org.pl/category/publication/"
+    handler = CENEA(test_url, "url_cenea.txt", "cenea", "cenea.csv", "cenea.json","cache")
     handler.main()
