@@ -20,9 +20,8 @@ logging.StreamHandler()
 
 
 class CENEA:
-    def __init__(self, index_url, url_txt, out_folder, xlsx_path, json_path, cached_path):
+    def __init__(self, index_url, out_folder, xlsx_path, json_path, cached_path):
         self.url = index_url
-        self.url_txt = url_txt
         self.json_path = json_path
         self.out_folder = out_folder
         self.xlsx_path = xlsx_path
@@ -38,10 +37,10 @@ class CENEA:
         :param url: 目标url
         :return:
         """
-        # title = re.sub(r"\W", "-", url.split("/")[-1])
-        title  = url.replace("/", "-")
+        title = url.replace("/", "-")
         save_path = os.path.join(self.cache_path, title)
         if os.path.exists(save_path):
+            logging.info(save_path+"已缓存，直接读取")
             with open(save_path, "r", encoding="utf8") as f:
                 return f.read()
         else:
@@ -52,7 +51,7 @@ class CENEA:
                 r.raise_for_status()
                 r.encoding = r.apparent_encoding
                 content = r.text
-                self.save_html(save_path,content)
+                self.save_html(save_path, content)
                 return (content)
             except:
                 time.sleep(20)
@@ -85,12 +84,14 @@ class CENEA:
         :return: page组成的列表
         """
         page_url_list = []
-        page_length = self.get_max_page()
-        for i in range(page_length):
-            page_url_list.append(self.url + "/?page=" + str(i))
+        # page_length = self.get_max_page()
+        for i in range(2007, 2023):
+            url = f'https://cenea.org.pl/{i}'
+            page_url_list.append(url)
         return page_url_list
 
     # 获取最大页数
+    #
     def get_max_page(self) -> int:
         """
         获取最大页数
@@ -125,23 +126,27 @@ class CENEA:
         url_list = []
         url_json = {}
         for page_url in page_list:
-            page_html = self.open_proxy_url(page_url)
-            tree = html.fromstring(page_html)
-            # 用于匹配每一个page下的详情页url
-            urls = tree.xpath("//a[@class='title db']/@href")
-            # 用于匹配每一个page下的详情页标题
-            titles = tree.xpath("//a[@class='title db']/text()")
-            for index in range(len(urls)):
-                # 此处匹配得到的url为完整的url，无需补充
-                title = re.sub(r"\W", "-", titles[index])
-                url = urls[index]
-                url_list.append(title + "\t" + url)
-                url_dict = {"title": title,
-                            "url": url,
-                            "resource": "https://www.eliamep.gr/en/publications/",
-                            }
-                url_json[title] = url_dict
-            time.sleep(1)
+            try:
+                page_html = self.open_proxy_url(page_url)
+                tree = html.fromstring(page_html)
+                # 用于匹配每一个page下的详情页url
+                urls = tree.xpath("//header[@class='article-header']/h2/a/@href")
+                # 用于匹配每一个page下的详情页标题
+                titles = tree.xpath("//header[@class='article-header']/h2/a/text()")
+                for index in range(len(urls)):
+                    # 此处匹配得到的url为完整的url，无需补充
+                    title = re.sub(r"\W", "-", titles[index])
+                    url = urls[index]
+                    url_list.append(title + "\t" + url)
+                    url_dict = {"title": title,
+                                "url": url,
+                                "resource": "https://cenea.org.pl/",
+                                }
+                    url_json[title] = url_dict
+                time.sleep(1)
+            except Exception as e:
+                logging.info(e)
+                continue
         json.dump(url_json, open(self.json_path, "w", encoding="utf8"), indent=4, separators=(',', ': '))
 
     # 保存具体html，提取信息
@@ -194,18 +199,18 @@ class CENEA:
                 content_str = ""
                 # html_text = f.read()
                 tree = html.fromstring(html_dict["html"])
-                title = tree.xpath("//h1[@class='postTitle']")[0].text
-                date = tree.xpath("//div[@class='l2']")[0].text
-                content = tree.xpath("//div[@class='articleBody']/p")
-                if tree.xpath("//div[@class='l2 experts']/a"):
-                    author = tree.xpath("//div[@class='l2 experts']/a")[0].text
-                else:
-                    author = ""
+                title = tree.xpath("//h1[@class='single-post-title']")[0].text
+                date = tree.xpath("//p[@class='single-post-byline']")[0].text
+                content = tree.xpath("//section[@class='single-post-content entry-content']/p")
+                # if tree.xpath("//div[@class='l2 experts']/a"):
+                #     author = tree.xpath("//div[@class='l2 experts']/a")[0].text
+                # else:
+                #     author = ""
                 for item in content:
                     if item.text is not None:
                         content_str += item.text
                 result_list.append(
-                    [title, html_dict["url"], content_str, " ", author, date, html_dict["resource"], " "])
+                    [title, html_dict["url"], content_str, " ", "", date, html_dict["resource"], " "])
             except Exception as e:
                 logging.info(e)
                 logging.info(file + "解析失败")
@@ -229,5 +234,5 @@ class CENEA:
 
 if __name__ == '__main__':
     test_url = "https://cenea.org.pl/category/publication/"
-    handler = CENEA(test_url, "url_cenea.txt", "cenea", "cenea.csv", "cenea.json","cache")
+    handler = CENEA(test_url,  "cenea", "cenea.csv", "cenea.json", "cache")
     handler.main()
